@@ -12,6 +12,7 @@ const path = require("path");
 const request = require("request");
 const should = require("should");
 const util = require("util");
+const qs = require("querystring");
 
 const S3rver = require("../lib");
 
@@ -1452,6 +1453,230 @@ describe("S3rver CORS Policy Tests", function() {
       );
     });
   });
+});
+
+describe("Test AWS style access logging", function() {
+  let s3Client;
+  let s3rver;
+  const testBucket = 'mytest';
+  const testKey = 'this-is-a-test-key';
+  const testContents = 'some contents';
+  const logBucket = 'access-log-bucket';
+  const bucketsToLog = [testBucket].join(',');
+  const logPrefix = 'logs/';
+  const logMaxDelay = 500;
+
+  let logLines = [];
+
+  function toMoment(line) {
+    const at = /\[([^\]]+)]/.exec(line);
+    return moment(at, 'DD/MMM/YYYY:HH:mm:ss ZZ');
+  }
+
+  function ingestLogs(callback) {
+    s3Client.listObjects({
+      Bucket: logBucket,
+      Prefix: logPrefix
+    }, (err, data) => {
+      should.not.exist(err);
+      let toFetch = [];
+      data.Contents.forEach(obj => {
+        if (!obj.Key.startsWith(logPrefix)) return;
+        toFetch.push(function(fetched) {
+          s3Client.getObject({
+            Bucket: logBucket,
+            Key: obj.Key
+          }, (err, data) => {
+            should.not.exist(err);
+            logLines = logLines.concat(data.Body.toString('utf-8').split('\n'));
+            fetched();
+          });
+        });
+      });
+      async.parallel(toFetch, err => {
+        should.not.exist(err);
+        logLines.sort(function (a, b) {
+          let aTime = toMoment(a);
+          let bTime = toMoment(b);
+          if (aTime.isBefore(bTime)) {
+            return -1;
+          } else if (bTime.isBefore(aTime)) {
+            return 1;
+          } else {
+            return 0;
+          }
+        });
+        callback();
+      });
+    });
+  }
+
+  before("Reset site bucket", resetTmpDir);
+
+  before("Start s3rver and make a test bucket", function(done) {
+    s3rver = new S3rver({
+      port: 5694,
+      hostname: "localhost",
+      silent: true,
+      directory: tmpDir,
+      logBucket,
+      logPrefix,
+      logMaxDelay,
+      bucketsToLog
+    }).run((err, hostname, port) => {
+      if (err) return done(err);
+      s3Client = new AWS.S3({
+        accessKeyId: "123",
+        secretAccessKey: "abc",
+        endpoint: util.format("http://%s:%d", hostname, port),
+        sslEnabled: false,
+        s3ForcePathStyle: true
+      });
+      s3Client.createBucket({ Bucket: testBucket }, err => {
+        if (err) return done(err);
+        done();
+      });
+    });
+  });
+
+  after(function(done) {
+    s3rver.close(done);
+  });
+
+  beforeEach("Clean out old logs", function(done) {
+    logLines = [];
+    s3Client.listObjects({
+      Bucket: logBucket,
+      Prefix: logPrefix
+    }, (err, data) => {
+      if (err) {
+          if (err.code !== 'NoSuchBucket') {
+              return done(err);
+          } else {
+              return done();
+          }
+      }
+      let toDelete = [];
+      data.Contents.forEach(obj => {
+        if (!obj.Key.startsWith(logPrefix)) return;
+        toDelete.push(function(callback) {
+          s3Client.deleteObject({
+            Bucket: logBucket,
+            Key: obj.Key
+          }, err => {
+            should.not.exist(err);
+            callback();
+          });
+        });
+      });
+      async.parallel(toDelete, err => {
+        should.not.exist(err);
+        done();
+      });
+    });
+  });
+
+  it("should have initialized the logger in the server", function(done) {
+    should.exist(s3rver.S3Logger);
+    done();
+  });
+
+  it("should have created the log bucket", function(done) {
+    s3Client.listBuckets((err, data) => {
+      if (err) return done(err);
+      let found = data.Buckets.find(b => {
+        if (b.Name === logBucket) return true;
+      });
+      should.exist(found);
+      done();
+    });
+  });
+
+  it("should create an object, fetch it, and see the log entries", function(done) {
+    s3Client.putObject({
+      Bucket: testBucket,
+      Key: testKey,
+      Body: testContents
+    }, err => {
+      should.not.exist(err);
+      s3Client.getObject({
+        Bucket: testBucket,
+        Key: testKey
+      }, err => {
+        should.not.exist(err);
+        setTimeout(() => {
+          ingestLogs(() => {
+            logLines.length.should.equal(2);
+            logLines[0].indexOf('REST.PUT.OBJECT').should.be.greaterThanOrEqual(0);
+            logLines[0].indexOf(testBucket).should.be.greaterThanOrEqual(0);
+            logLines[0].indexOf(testKey).should.be.greaterThanOrEqual(0);
+            logLines[1].indexOf('REST.GET.OBJECT').should.be.greaterThanOrEqual(0);
+            logLines[1].indexOf(testBucket).should.be.greaterThanOrEqual(0);
+            logLines[1].indexOf(testKey).should.be.greaterThanOrEqual(0);
+            done();
+          });
+        }, logMaxDelay*2);
+      });
+    });
+  });
+
+  it("should handle logging the query string properly", function(done) {
+    s3Client.putObject({
+      Bucket: testBucket,
+      Key: testKey,
+      Body: testContents
+    }, err => {
+      should.not.exist(err);
+      request(
+        `http://localhost:5694/${testBucket}/${testKey}?x-r=${encodeURIComponent('Testing!')}`,
+        (err, response) => {
+          should.not.exist(err);
+          response.statusCode.should.equals(200);
+          setTimeout(() => {
+            ingestLogs(() => {
+              logLines.length.should.equal(2);
+              logLines[1].indexOf(`GET /${testBucket}`).should.greaterThanOrEqual(0);
+              const query = new RegExp(`GET /${testBucket}/${testKey}\\?([^ ]+)`).exec(logLines[1]);
+              should.exist(query);
+              const qparts = qs.parse(query[1]);
+              should.exist(qparts);
+              should.exist(qparts['x-r']);
+              qparts['x-r'].should.equal('Testing!');
+              done();
+            });
+          }, logMaxDelay*2);
+        }
+      );
+    });
+  });
+
+  it("should log the copy operation properly", function(done) {
+    s3Client.putObject({
+      Bucket: testBucket,
+      Key: testKey,
+      Body: testContents
+    }, err => {
+      should.not.exist(err);
+      let tkey = testKey + '.copy';
+      s3Client.copyObject({
+        Bucket: testBucket,
+        Key: tkey,
+        CopySource: encodeURIComponent(`${testBucket}/${testKey}`)
+      }, (err) => {
+        should.not.exist(err);
+        setTimeout(() => {
+          ingestLogs(() => {
+            logLines.length.should.equal(3);
+            logLines[1].indexOf(`GET /${testBucket}/${testKey}`).should.greaterThanOrEqual(0);
+            logLines[1].indexOf('REST.COPY.OBJECT').should.greaterThanOrEqual(0);
+            logLines[2].indexOf(`PUT /${testBucket}/${tkey}`).should.greaterThanOrEqual(0);
+            done();
+          });
+        }, logMaxDelay*2);
+      });
+    });
+  });
+
 });
 
 describe("S3rver Tests with Static Web Hosting", function() {
