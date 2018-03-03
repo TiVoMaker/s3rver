@@ -24,10 +24,10 @@ program
   .option("-c, --cors [path]", "Path to S3 CORS configuration XML file")
   .option("--key [path]", "Path to private key file for running with TLS")
   .option("--cert [path]", "Path to certificate file for running with TLS")
-  .option("--log-bucket", "Name of a bucket for logging; will create if not present")
-  .option("--log-prefix", "Key prefix for log names")
-  .option("--log-max-delay", "Maximum delay before writing collected log lines to a log file")
-  .option("--buckets-to-log", "Comma-separated list of buckets which should be logged");
+  .option("--logBucket", "Name of a bucket for logging; will create if not present")
+  .option("--logPrefix", "Key prefix for log names")
+  .option("--logMaxDelay", "Maximum delay before writing collected log lines to a log file")
+  .option("--bucketsToLog", "Comma-separated list of buckets which should be logged");
   .parse(process.argv);
 
 if (program.directory === undefined) {

@@ -11,6 +11,8 @@ S3rver is a lightweight server that responds to **some** of the same calls [Amaz
 
 The goal of S3rver is to minimise runtime dependencies and be more of a development tool to test S3 calls in your code rather than a production server looking to duplicate S3 functionality.
 
+The server also provides an optional emulation of S3 access logging.
+
 ## Supported methods
 
 ### Buckets
@@ -67,6 +69,12 @@ mysite.local 127.0.0.1
 ```
 Now you can access the served content at `http://mysite.local:4568/`
 
+## Bucket Access Logging
+
+You may enable emulation of S3 [access logging capability](https://docs.aws.amazon.com/AmazonS3/latest/dev/ServerLogs.html). This will periodically write access logs in the S3 log format to a bucket of your choosing, based on a list of buckets to log. The log entries are buffered (just like real S3) and are collectively written to a new object in the log bucket periodically. See the S3 documentation for object naming and format information. The options to enable this emulation are described below.
+
+If enabled, the server will automatically create the log bucket if it does not already exist.
+
 ## Tests
 
 The tests should be run by one of the active LTS versions. The CI Server runs the tests on the latest `6.x` and `8.x` releases.
@@ -103,6 +111,10 @@ Creates a S3rver instance
 | indexDocument | `string` |  | Index document for static web hosting |
 | errorDocument | `string` |  | Error document for static web hosting |
 | removeBucketsOnClose | `boolean` | `false` | Remove all bucket data on server close |
+| logBucket | `string` | | Bucket in which to write the logs. May also be set in the S3RVER\_LOG\_BUCKET environment variable
+| logPrefix | `string` | | Prefix for each log object name. May also be set in the S3RVER\_LOG\_PREFIX environment variable
+| logMaxDelay | `number` | `5000` | Maximum milliseconds that entries will be buffered. May also be set via the S3RVER\_LOG\_MAX\_DELAY environment variable
+| bucketsToLog | `string[,string...]` | | Comma separated list of bucket names that will be tracked. May also be set via the S3RVER\_BUCKETS\_TO\_LOG environment variable
 
 ### s3rver.run(callback)
 Starts the server on the configured port and host
