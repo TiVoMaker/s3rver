@@ -27,7 +27,7 @@ program
   .option("--logBucket", "Name of a bucket for logging; will create if not present")
   .option("--logPrefix", "Key prefix for log names")
   .option("--logMaxDelay", "Maximum delay before writing collected log lines to a log file")
-  .option("--bucketsToLog", "Comma-separated list of buckets which should be logged");
+  .option("--bucketsToLog", "Comma-separated list of buckets which should be logged")
   .parse(process.argv);
 
 if (program.directory === undefined) {
