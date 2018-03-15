@@ -79,9 +79,6 @@ If enabled, the server will automatically create the log bucket if it does not a
 
 The tests should be run by one of the active LTS versions. The CI Server runs the tests on the latest `6.x` and `8.x` releases.
 
-Be wary that Windows is not fully supported due to the way its filesystem works, so most tests that involve deleting objects will fail.
-Use Linux Subsystem for Windows to test if it's your primary environment.
-
 To run the test suite, first install the dependencies, then run `npm test`:
 
 ```bash
