@@ -1367,28 +1367,22 @@ describe("Test AWS style access logging", function() {
     }
 
     let toDelete = [];
-    data.Contents.forEach(obj => {
-      if (!obj.Key.startsWith(logPrefix)) return;
-      toDelete.push(
-        s3Client.deleteObject({
-          Bucket: logBucket,
-          Key: obj.Key
-        }).promise()
-      );
-    });
+    if (data) {
+      data.Contents.forEach(obj => {
+          if (!obj.Key.startsWith(logPrefix)) return;
+          toDelete.push(
+              s3Client.deleteObject({
+                  Bucket: logBucket,
+                  Key: obj.Key
+              }).promise()
+          );
+      });
+    }
     yield Promise.all(toDelete);
   });
 
   it("should have initialized the logger in the server", function*() {
     yield expect(Promise.resolve(s3rver.S3Logger)).eventually.to.exist;
-  });
-
-  it("should have created the log bucket", function*() {
-    let data = yield s3Client.listBuckets().promise();
-    let found = data.Buckets.find(b => {
-      if (b.Name === logBucket) return true;
-    });
-    yield expect(Promise.resolve(found)).eventually.to.exist;
   });
 
   it("should create an object, fetch it, and see the log entries", function*() {
